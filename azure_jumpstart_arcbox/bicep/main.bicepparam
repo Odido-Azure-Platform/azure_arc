@@ -22,12 +22,12 @@ param sqlServerEdition = 'Enterprise'
 
 param resourceTags = {
   SolutionName : 'jumpstart_arcbox'
-  'app:environment' : 'dev'
-  'ops:owner:technical' : 'zoltan.horvath@odido.nl'
-  'app:description' : 'Azure ArcBox PoC'
-  'app:name' : 'arcbox'
-  'app:type' : 'iaas'
-  'ops:owner:requester' : 'marcel.mulder@odido.nl'
+  'app-environment' : 'dev'
+  'ops-owner-technical' : 'zoltan.horvath@odido.nl'
+  'app-description' : 'Azure ArcBox PoC'
+  'app-name' : 'arcbox'
+  'app-type' : 'iaas'
+  'ops-owner-requester' : 'marcel.mulder@odido.nl'
 } // Add tags as needed
 
 param autoShutdownEnabled = true
