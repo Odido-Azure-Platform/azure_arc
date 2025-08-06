@@ -36,6 +36,6 @@ param autoShutdownTime = '1900'
 
 param autoShutdownTimezone = 'UTC'
 
-param autoShutdownEmailRecipient = 'ams-it-windowsadmin@odido.nl'
+param autoShutdownEmailRecipient = 'cloudinfra-windows@odido.nl'
 
-param enableAzureSpotPricing = true
+param enableAzureSpotPricing = false
