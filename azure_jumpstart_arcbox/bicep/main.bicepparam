@@ -2,11 +2,11 @@ using 'main.bicep'
 
 // param sshRSAPublicKey = '<your RSA public key>'
 
-param tenantId = '63a8df83-063c-4312-a508-dc01b7508661'
+param tenantId = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' // Replace with your actual tenant ID
 
 param windowsAdminUsername = 'arcdemo'
 
-param windowsAdminPassword = 'enclose research going stick 08 !!'
+param windowsAdminPassword = 'password' // Replace with a secure password
 
 param logAnalyticsWorkspaceName = 'ArcBoxITPro-la'
 
