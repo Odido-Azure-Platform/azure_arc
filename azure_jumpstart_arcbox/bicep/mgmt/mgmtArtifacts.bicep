@@ -33,6 +33,13 @@ param workspaceName string
 ])
 param flavor string
 
+@allowed([
+  'RVIT'
+  'NonRVIT'
+])
+@description('Governance tier applied to the landing zone. RVIT enables stricter controls.')
+param governanceTier string = 'RVIT'
+
 @description('Azure Region to deploy the Log Analytics Workspace')
 param location string = resourceGroup().location
 
@@ -637,6 +644,7 @@ module policyDeployment './policyAzureArc.bicep' = {
     azureLocation: location
     logAnalyticsWorkspaceId: workspace.id
     flavor: flavor
+    governanceTier: governanceTier
     resourceTags: resourceTags
   }
 }

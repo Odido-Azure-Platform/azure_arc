@@ -236,6 +236,7 @@ module mgmtArtifactsAndPolicyDeployment 'mgmt/mgmtArtifacts.bicep' = {
   params: {
     workspaceName: logAnalyticsWorkspaceName
     flavor: flavor
+    governanceTier: 'RVIT'
     deployBastion: deployBastion
     bastionSku: bastionSku
     location: location

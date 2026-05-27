@@ -7,6 +7,13 @@ param logAnalyticsWorkspaceId string
 @description('The flavor of ArcBox you want to deploy. Valid values are: \'DataOps\', \'DevOps\', \'ITPro\'')
 param flavor string
 
+@allowed([
+  'RVIT'
+  'NonRVIT'
+])
+@description('Governance tier applied to the landing zone. RVIT enables stricter controls.')
+param governanceTier string = 'RVIT'
+
 @description('Tags to assign for all ArcBox resources')
 param resourceTags object = {
   Solution: 'jumpstart_arcbox'
@@ -205,7 +212,7 @@ resource updateManagerAzurePolicyLinux  'Microsoft.Authorization/policyAssignmen
   }
 }
 
-resource sshPostureControlLinuxAudit  'Microsoft.Authorization/policyAssignments@2025-01-01' = {
+resource sshPostureControlLinuxAudit  'Microsoft.Authorization/policyAssignments@2025-01-01' = if (governanceTier == 'RVIT') {
   name: '(ArcBox) Enable SSH Posture Control audit for Linux'
   location: azureLocation
   scope: resourceGroup()
@@ -221,7 +228,7 @@ resource sshPostureControlLinuxAudit  'Microsoft.Authorization/policyAssignments
   }
 }
 
-resource sshPostureControlWindowsAudit  'Microsoft.Authorization/policyAssignments@2025-01-01' = {
+resource sshPostureControlWindowsAudit  'Microsoft.Authorization/policyAssignments@2025-01-01' = if (governanceTier == 'RVIT') {
   name: '(ArcBox) Enable SSH Posture Control audit for Windows'
   location: azureLocation
   scope: resourceGroup()
@@ -237,7 +244,7 @@ resource sshPostureControlWindowsAudit  'Microsoft.Authorization/policyAssignmen
   }
 }
 
-resource azureMachineConfigurationPrerequisitePolicy  'Microsoft.Authorization/policyAssignments@2025-01-01' = {
+resource azureMachineConfigurationPrerequisitePolicy  'Microsoft.Authorization/policyAssignments@2025-01-01' = if (governanceTier == 'RVIT') {
   name: '(ArcBox) Deploy prerequisites to enable Machine Configuration'
   location: azureLocation
   scope: resourceGroup()
@@ -251,7 +258,7 @@ resource azureMachineConfigurationPrerequisitePolicy  'Microsoft.Authorization/p
   }
 }
 
-resource azureMachineConfigurationPrerequisitePolicy_role 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource azureMachineConfigurationPrerequisitePolicy_role 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (governanceTier == 'RVIT') {
   name: guid('azureMachineConfigurationPrerequisitePolicy', 'Contributor', resourceGroup().id)
   properties: {
     roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
