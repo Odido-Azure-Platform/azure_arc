@@ -1,0 +1,41 @@
+name: Arc Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install pinned Bicep
+        run: az bicep install --version v0.43.1
+      - name: Compile solutions and parameters; run regression tests
+        env:
+          ARC_VALIDATION_OUTPUT: ${{ runner.temp }}/arc-compiled
+        run: |
+          mkdir -p "$ARC_VALIDATION_OUTPUT"
+          node scripts/validation/validate.mjs
+      - name: Install pinned security scanner
+        run: |
+          python3 -m venv "$RUNNER_TEMP/checkov"
+          "$RUNNER_TEMP/checkov/bin/pip" install --disable-pip-version-check checkov==3.4.3
+      - name: Scan source for secrets
+        run: '"$RUNNER_TEMP/checkov/bin/checkov" --directory . --framework secrets --skip-path .git --compact --quiet'
+      - name: Scan compiled ARM templates
+        env:
+          ARC_CHECKOV_BIN: ${{ runner.temp }}/checkov/bin/checkov
+        run: |
+          node scripts/validation/prepare-scan.mjs "$RUNNER_TEMP/arc-compiled" "$RUNNER_TEMP/arc-security"
+          node scripts/validation/security-scan.mjs "$RUNNER_TEMP/arc-security"

@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+**/.venv/
+**/__pycache__/
+*.sarif
+*.parameters.json
+*.params.json
+!bicepconfig.json

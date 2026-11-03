@@ -1,0 +1,129 @@
+name: Arc Preview and Deploy
+run-name: Arc ${{ inputs.target }} / ${{ inputs.stage }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        required: true
+        options: [arc-we-rvit, arc-we-nrvit, governance]
+      stage:
+        type: choice
+        required: true
+        options: [foundation, monitoring, connectivity, rbac, definitions, assignments, associations, maintenance, defender]
+      apply:
+        description: Request a separately approved apply after reviewing the preview
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arc-${{ inputs.target }}-${{ inputs.stage }}
+  cancel-in-progress: false
+
+jobs:
+  validation:
+    uses: ./.github/workflows/arc-validate.yml
+
+  preview:
+    needs: validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.target }}-${{ inputs.stage }}-preview
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ARC_IMPLEMENTATION_READY: ${{ vars.ARC_IMPLEMENTATION_READY }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARC_MANAGEMENT_GROUP_ID: ${{ vars.ARC_MANAGEMENT_GROUP_ID }}
+      ARC_SUBNET_ID: ${{ vars.ARC_SUBNET_ID }}
+      ARC_DNS_ZONE_IDS: ${{ vars.ARC_DNS_ZONE_IDS }}
+      ARC_MONITOR_DNS_ZONE_IDS: ${{ vars.ARC_MONITOR_DNS_ZONE_IDS }}
+      ARC_WORKSPACE_ID: ${{ vars.ARC_WORKSPACE_ID }}
+      ARC_DCE_IDS: ${{ vars.ARC_DCE_IDS }}
+      ARC_WINDOWS_DCR_ID: ${{ vars.ARC_WINDOWS_DCR_ID }}
+      ARC_LINUX_DCR_ID: ${{ vars.ARC_LINUX_DCR_ID }}
+      ARC_WINDOWS_DCE_ID: ${{ vars.ARC_WINDOWS_DCE_ID }}
+      ARC_LINUX_DCE_ID: ${{ vars.ARC_LINUX_DCE_ID }}
+      ARC_MACHINES: ${{ vars.ARC_MACHINES }}
+      ARC_ONBOARDING_PRINCIPAL_ID: ${{ vars.ARC_ONBOARDING_PRINCIPAL_ID }}
+      ARC_PATCH_START: ${{ vars.ARC_PATCH_START }}
+      ARC_PATCH_RECURRENCE: ${{ vars.ARC_PATCH_RECURRENCE }}
+      ARC_INITIATIVE_ID: ${{ vars.ARC_INITIATIVE_ID }}
+      ARC_SCOPE_ID: ${{ vars.ARC_SCOPE_ID }}
+      ARC_ALLOWED_EXTENSIONS: ${{ vars.ARC_ALLOWED_EXTENSIONS }}
+      ARC_DEFENDER_PLAN: ${{ vars.ARC_DEFENDER_PLAN }}
+      ARC_TARGET: ${{ inputs.target }}
+      ARC_STAGE: ${{ inputs.stage }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify target and implementation gate
+        run: |
+          test "$ARC_IMPLEMENTATION_READY" = true
+          node --input-type=module -e 'import { resolveStage } from "./scripts/validation/deploy.mjs"; resolveStage(process.env.ARC_TARGET, process.env.ARC_STAGE);'
+      - name: Install pinned Bicep
+        run: az bicep install --version v0.43.1
+      - uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Validate and preview the real target
+        run: node scripts/validation/deploy.mjs preview "$ARC_TARGET" "$ARC_STAGE" "$RUNNER_TEMP/arc-preview"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: arc-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/arc-preview
+          retention-days: 7
+          if-no-files-found: error
+
+  apply:
+    if: ${{ inputs.apply }}
+    needs: preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: ${{ inputs.target }}-${{ inputs.stage }}-apply
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ARC_IMPLEMENTATION_READY: ${{ vars.ARC_IMPLEMENTATION_READY }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARC_MANAGEMENT_GROUP_ID: ${{ vars.ARC_MANAGEMENT_GROUP_ID }}
+      ARC_TARGET: ${{ inputs.target }}
+      ARC_STAGE: ${{ inputs.stage }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: arc-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/arc-preview
+      - name: Install pinned Bicep
+        run: az bicep install --version v0.43.1
+      - uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Revalidate reviewed bundle and apply
+        run: node scripts/validation/deploy.mjs apply "$ARC_TARGET" "$ARC_STAGE" "$RUNNER_TEMP/arc-preview"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: arc-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/arc-preview/deployment.json
+          retention-days: 30
+          if-no-files-found: error

@@ -1,0 +1,142 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const stages = {
+  foundation: { solution: 'infrastructure/foundation/foundation', scope: 'sub' },
+  monitoring: { solution: 'platform/monitoring/monitoring', scope: 'group', group: 'monitor' },
+  connectivity: { solution: 'infrastructure/connectivity/connectivity', scope: 'group', group: 'pls' },
+  rbac: { solution: 'platform/identity/rbac/rbac', scope: 'group', group: 'ops' },
+  associations: { solution: 'platform/monitoring/associations', scope: 'group', group: 'ops' },
+  maintenance: { solution: 'platform/maintenance/maintenance', scope: 'group', group: 'ops' },
+  defender: { solution: 'security/defender-for-servers/defender-for-servers', scope: 'sub' },
+  definitions: { solution: 'platform/governance/policy/definitions', scope: 'mg' },
+  assignments: { solution: 'platform/governance/policy/assignments', scope: 'mg' },
+};
+
+export function resolveStage(target, stage) {
+  assert.ok(['arc-we-rvit', 'arc-we-nrvit', 'governance'].includes(target), 'Unknown deployment target');
+  assert.ok(Object.hasOwn(stages, stage), 'Unknown deployment stage');
+  assert.equal(target === 'governance', stage === 'definitions', 'Shared definitions require governance; class stages require a class target');
+  return stages[stage];
+}
+
+export function checkParameters(target, stage, parameters) {
+  resolveStage(target, stage);
+  const expectedClass = target === 'arc-we-rvit' ? 'RVIT' : 'Non-RVIT';
+  if (parameters.classification) assert.equal(parameters.classification.value, expectedClass, 'Wrong class parameters');
+  if (stage === 'assignments') assert.ok(['Audit', 'Deny', 'Disabled'].includes(parameters.effect.value));
+  if (stage === 'defender') assert.equal(parameters.costApproved.value, true, 'Defender billing has not been approved in source');
+  assert.ok(!JSON.stringify(parameters).includes('11111111-1111-1111-1111-111111111111'), 'Synthetic validation IDs cannot be deployed');
+  assert.ok(!JSON.stringify(parameters).includes('00000000-0000-0000-0000-000000000000'), 'Placeholder IDs cannot be deployed');
+}
+
+export function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+  }
+  return value;
+}
+
+const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+
+function az(args) {
+  const result = spawnSync('az', [...args, '--only-show-errors', '--output', 'json'], { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  assert.equal(result.status, 0, `Azure command failed: az ${args.slice(0, 3).join(' ')}\n${result.error || result.stderr}`);
+  return JSON.parse(result.stdout);
+}
+
+function compileParameters(file) {
+  const compiled = az(['bicep', 'build-params', '--file', file, '--stdout']);
+  const parameters = compiled.parametersJson ?? compiled;
+  return typeof parameters === 'string' ? JSON.parse(parameters) : parameters;
+}
+
+export function rejectDeletes(result) {
+  assert.ok(!result.error, 'What-if returned an error');
+  assert.ok(Array.isArray(result.changes), 'What-if did not return a change list');
+  assert.ok(!result.changes.some(change => change.changeType === 'Delete'), 'Delete changes require a separate approved decommissioning process');
+}
+
+function writeJson(file, value) {
+  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function main() {
+  const [mode, target, stage, directory] = process.argv.slice(2);
+  assert.ok(['preview', 'apply'].includes(mode), 'Usage: deploy.mjs preview|apply target stage bundle-directory');
+  const configuration = resolveStage(target, stage);
+  assert.equal(process.env.ARC_IMPLEMENTATION_READY, 'true', 'Complete the inventory and security/network decision record before Azure operations');
+  assert.ok(directory && path.isAbsolute(directory), 'Use an absolute runner-temporary bundle directory');
+  const bundle = path.resolve(directory);
+  const relativeBundle = path.relative(root, bundle);
+  assert.ok(relativeBundle.startsWith(`..${path.sep}`), 'Generated deployment bundles must stay outside the source repository');
+  const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID;
+  const tenantId = process.env.AZURE_TENANT_ID;
+  for (const identifier of [subscriptionId, tenantId]) {
+    assert.match(identifier || '', /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i, 'Set explicit Azure subscription and tenant IDs');
+    assert.ok(!['00000000-0000-0000-0000-000000000000', '11111111-1111-1111-1111-111111111111'].includes(identifier));
+  }
+  const sourceCommit = process.env.GITHUB_SHA;
+  assert.match(sourceCommit || '', /^[0-9a-f]{40}$/i, 'Run delivery from a reviewed GitHub commit');
+  const account = az(['account', 'show', '--subscription', subscriptionId]);
+  assert.equal(account.tenantId.toLowerCase(), tenantId.toLowerCase(), 'Wrong Azure tenant');
+  assert.equal(account.id.toLowerCase(), subscriptionId.toLowerCase(), 'Wrong Azure subscription');
+
+  const prefix = path.join(root, 'projects/odido', target, 'bicep/solutions/azure');
+  const parameterFile = path.join(prefix, `${configuration.solution}.bicepparam`);
+  const templateFile = path.join(root, 'bicep/solutions/azure', `${configuration.solution}.bicep`);
+  const scopeArguments = configuration.scope === 'mg'
+    ? ['--management-group-id', process.env.ARC_MANAGEMENT_GROUP_ID || '', '--location', 'westeurope']
+    : configuration.scope === 'sub' ? ['--location', 'westeurope'] : [];
+  if (configuration.scope === 'mg') assert.match(process.env.ARC_MANAGEMENT_GROUP_ID || '', /^[a-zA-Z0-9_.()-]{1,90}$/, 'Set the actual management group ID');
+  if (configuration.scope === 'group') {
+    const foundation = compileParameters(path.join(prefix, 'infrastructure/foundation/foundation.bicepparam'));
+    scopeArguments.push('--resource-group', foundation.parameters.resourceGroups.value[configuration.group]);
+  }
+  const commandArguments = ['--subscription', subscriptionId, ...scopeArguments];
+  const templatePath = path.join(bundle, 'template.json');
+  const parametersPath = path.join(bundle, 'parameters.json');
+  const manifestPath = path.join(bundle, 'manifest.json');
+  const context = { target, stage, subscriptionId, tenantId, sourceCommit, scope: configuration.scope, scopeArguments };
+
+  if (mode === 'preview') {
+    mkdirSync(bundle, { recursive: true });
+    const template = az(['bicep', 'build', '--file', templateFile, '--stdout']);
+    const parameters = compileParameters(parameterFile);
+    checkParameters(target, stage, parameters.parameters);
+    writeJson(templatePath, template);
+    writeJson(parametersPath, parameters);
+    const inputs = [...commandArguments, '--template-file', templatePath, '--parameters', `@${parametersPath}`];
+    az(['deployment', configuration.scope, 'validate', ...inputs]);
+    const preview = az(['deployment', configuration.scope, 'what-if', ...inputs]);
+    rejectDeletes(preview);
+    writeJson(path.join(bundle, 'what-if.json'), preview);
+    writeJson(manifestPath, { ...context, templateDigest: digest(template), parameterDigest: digest(parameters), changesDigest: digest(preview.changes) });
+    console.log(`Preview ready: ${target}/${stage}. Review what-if.json before approving apply.`);
+    return;
+  }
+
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  for (const [key, value] of Object.entries(context)) assert.deepEqual(manifest[key], value, `Preview context changed: ${key}`);
+  const template = JSON.parse(readFileSync(templatePath, 'utf8'));
+  const parameters = JSON.parse(readFileSync(parametersPath, 'utf8'));
+  assert.equal(digest(template), manifest.templateDigest, 'Template changed since preview');
+  assert.equal(digest(parameters), manifest.parameterDigest, 'Parameters changed since preview');
+  checkParameters(target, stage, parameters.parameters);
+  const inputs = [...commandArguments, '--template-file', templatePath, '--parameters', `@${parametersPath}`];
+  az(['deployment', configuration.scope, 'validate', ...inputs]);
+  const preview = az(['deployment', configuration.scope, 'what-if', ...inputs]);
+  rejectDeletes(preview);
+  assert.equal(digest(preview.changes), manifest.changesDigest, 'Azure state changed after review; generate and approve a new preview');
+  const deployment = az(['deployment', configuration.scope, 'create', ...inputs, '--name', `arc-${stage}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`]);
+  writeJson(path.join(bundle, 'deployment.json'), deployment);
+  console.log(`Deployment completed: ${target}/${stage}. Review deployment.json for downstream resource IDs.`);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main();
