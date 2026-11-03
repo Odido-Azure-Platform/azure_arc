@@ -34,8 +34,13 @@ node scripts/validation/validate.mjs
 ```
 
 The command compiles every template and parameter set, runs policy/delivery
-regression tests and uses temporary synthetic inputs. It does not deploy.
+regression tests and needs no deployment-input environment variables. It does not deploy.
 Compiled JSON is never committed alongside `.bicep` / `.bicepparam` sources.
+
+All resource and deployment-scope settings are source-controlled `.bicepparam`
+values. GitHub variables are used only for workflow login; the same delivery
+helper can run locally or in another CI system. See the
+[project input guide](projects/odido/README.md) for required placeholders.
 
 ## Design and Operations
 

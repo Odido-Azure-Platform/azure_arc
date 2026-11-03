@@ -6,6 +6,12 @@ the inventory, design and deployment gates below.
 
 Prepared: 2026-11-03.
 
+Configuration clarification: all resource inputs and deployment context are
+source-controlled `.bicepparam` values. No GitHub environment variables configure
+resources; workflow variables are authentication-only. The runner-independent
+delivery helper supports local/other-CI execution from the same reviewed Git
+revision. This supersedes any runtime-input configuration described below.
+
 Implementation progress and verification limits are tracked in
 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md). The initial implementation
 consolidates the proposed deployment workflows into one stage-allowlisted

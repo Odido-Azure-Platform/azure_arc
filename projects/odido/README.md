@@ -10,37 +10,58 @@ live inventory before enabling delivery; they are not evidence of existing RGs.
 | `arc-we-nrvit` | `Non-RVIT` | `rg-arc-nrvit-we-{ops,monitor,pls}` |
 | `governance` | Shared definitions only | No RGs; parent management group |
 
-## Environment Inputs
+## Source-Controlled Inputs
 
-Only define inputs required by the selected stage. JSON-array values must be
-valid JSON, not comma-separated text. Missing required inputs stop parameter
-compilation. Never substitute invented IDs for a deployment preview.
+All deployment configuration lives in `.bicepparam`, not GitHub variables or
+secrets. Parameter files contain native Bicep strings, arrays and objects; none
+use `readEnvironmentVariable`. Validation compiles the actual source unchanged.
 
-| Input | Meaning / stage |
+Each target has a project-level `deployment.bicepparam` using Bicep's `using none`
+syntax. This is deployment-runner context, not a resource deployment template.
+
+| Parameter | Required configuration |
 | --- | --- |
-| `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | Actual protected-environment OIDC identity and explicit tenant/subscription context. Preview and apply can use different clients but must use the same tenant/subscription. |
-| `ARC_IMPLEMENTATION_READY` | Must be `true` only after the readiness record is completed and approved. This does not bypass CI or environment review. |
-| `ARC_MANAGEMENT_GROUP_ID` | Existing MG ID, not display name or full resource ID. Parent MG for `definitions`; class MG for `assignments`. |
-| `ARC_SUBNET_ID` | Full existing private-endpoint subnet resource ID; connectivity stage. |
-| `ARC_DNS_ZONE_IDS` | JSON array of existing Arc private DNS zone resource IDs. Network owner must supply the complete required zone set. |
-| `ARC_MONITOR_DNS_ZONE_IDS` | JSON array of existing AMPLS private DNS zone resource IDs. Approve the DNS boundary first. |
-| `ARC_WORKSPACE_ID` | Full workspace ID from the monitoring deployment output. |
-| `ARC_DCE_IDS` | JSON array of both class DCE IDs from monitoring outputs, for AMPLS scope links. |
-| `ARC_WINDOWS_DCR_ID`, `ARC_LINUX_DCR_ID` | Full class DCR IDs for pilot associations. |
-| `ARC_WINDOWS_DCE_ID`, `ARC_LINUX_DCE_ID` | Full OS-specific DCE IDs for pilot configuration access associations. |
-| `ARC_MACHINES` | JSON array of approved existing machines, e.g. `[{"name":"pilot-win","osType":"Windows"},{"name":"pilot-linux","osType":"Linux"}]`. Names resolve only in the class operations RG. |
-| `ARC_ONBOARDING_PRINCIPAL_ID` | Existing class onboarding service-principal object ID, not client/application ID. |
-| `ARC_PATCH_START` | Approved local timestamp, format `yyyy-MM-dd HH:mm`. |
-| `ARC_PATCH_RECURRENCE` | Approved Maintenance Configuration recurrence, e.g. `1Week Saturday`. |
-| `ARC_INITIATIVE_ID` | Shared policy-set ID returned by the definitions deployment. |
-| `ARC_SCOPE_ID` | Exact regional/class ALPLS resource ID returned by connectivity. |
-| `ARC_ALLOWED_EXTENSIONS` | Reviewed JSON array of publisher/type pairs. Include both OS AMA handlers and approved Defender handlers before tightening enforcement. Do not guess publisher values. |
-| `ARC_DEFENDER_PLAN` | Approved `P1` or `P2`. Billing remains disabled until `costApproved` is changed in a reviewed source change. |
+| `tenantId`, `subscriptionId` | Actual target IDs. No current CLI default subscription is assumed. |
+| `managementGroupId` | Existing parent MG for shared definitions, or class MG for class assignments. Use the ID, not display name or full resource ID. |
+| `location` | Deployment metadata location for subscription/MG stages. Resource locations remain explicit in stage parameter files. |
+| `implementationReady` | Keep false until readiness decisions and effective security scanning are approved. Change through reviewed source control, not a workflow toggle. |
 
-Outputs are obtained from the reviewed deployment result artifact. Populate the
-next stage's protected inputs with the actual IDs; no duplicate params JSON is
-added to the repository. A future automated output lookup must verify deployment
-target, source revision and ownership before consuming IDs.
+The stage `.bicepparam` files under each target define all resource inputs:
+
+| Stage | Inputs to complete/review in its parameter file |
+| --- | --- |
+| `foundation` | RG names, region, canonical class and tags. Names are proposed, not discovered inventory. |
+| `monitoring` | Workspace/prefix, retention, Windows event queries, Linux facilities and tags. |
+| `connectivity` | Existing subnet ID, complete Arc/Monitor DNS zone ID arrays, workspace ID and both DCE IDs. |
+| `rbac` | Existing onboarding service-principal object ID and explicit operator group/role assignments. Object ID is not client ID. |
+| `associations` | Approved real Windows/Linux machine list and OS-specific DCR/DCE IDs. Names resolve in the class operations RG. |
+| `definitions` | Shared initiative naming prefix in the governance project. |
+| `assignments` | Shared initiative ID, exact class ALPLS ID and security-reviewed publisher/type pairs. |
+| `maintenance` | Approved local start (`yyyy-MM-dd HH:mm`), recurrence, time zone, duration, reboot policy and ring. |
+| `defender` | Approved P1/P2 plan and explicit billing approval. P1 is a proposed value, not cost approval. |
+
+Unknown values are visible as `REQUIRED_*` or an all-zero object ID. They allow
+offline compilation but the delivery helper rejects them before Azure resource
+operations. Replace arrays with the complete approved values, not just the first
+example entry. AMA publisher/type pairs are prefilled; security must complete
+the extension review, including any Defender handlers, before assignment.
+
+After reviewing monitoring/connectivity/definition deployment outputs, put actual
+IDs into downstream `.bicepparam` files and commit/review the changes before the
+next stage. Generated parameter JSON is temporary only and never authoritative.
+
+## Workflow Authentication Only
+
+GitHub environment variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and
+`AZURE_SUBSCRIPTION_ID` are used only by the Azure login action. They do not feed
+Bicep or select deployment scope. The helper independently reads the target
+scope from source and verifies the authenticated tenant/subscription. Preview
+and apply may use different least-privilege clients for the same source scope.
+
+Workflow target/stage selections, environment reviews and artifact paths are
+workflow controls, not resource configuration. Another CI runner or an already
+authenticated local Azure CLI can use the same helper and parameter files.
+Never commit credentials; use the runner's credential mechanism for login only.
 
 ## Safety Defaults
 
@@ -53,6 +74,6 @@ settings only through separately reviewed changes after their acceptance gates.
 security/records owner's retention approval. Event sources are intentionally
 narrow; change them only after collection scope and ingestion costs are reviewed.
 
-Keep RVIT and Non-RVIT environment variables and OIDC permissions separate.
-The compile-only validation fixtures are confined to the validator process and
-are explicitly rejected by the delivery helper.
+Keep RVIT and Non-RVIT source parameters and identity permissions separate. The
+helper requires a clean Git checkout and records its commit in reviewed bundles;
+it does not require `GITHUB_SHA` or any other GitHub runtime environment value.

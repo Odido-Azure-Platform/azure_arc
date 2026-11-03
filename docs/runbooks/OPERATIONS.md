@@ -34,6 +34,32 @@ apply environment. Apply checks source revision, target, bundle hashes and a
 fresh what-if; drift requires a new preview/approval. Artifacts expire; never
 apply an old copied bundle. Workflow runs must target a reviewed source commit.
 
+## Runner-Independent Delivery
+
+From the repository root, after completing the readiness record, resolving the
+security gate and committing/reviewing real source parameter values, use an
+Azure CLI session authenticated by your approved local or CI login mechanism:
+
+```bash
+node scripts/validation/validate.mjs
+node scripts/validation/deploy.mjs preview arc-we-rvit foundation /tmp/arc-reviewed-preview
+```
+
+Review the generated what-if, obtain the same independent change approval used
+for CI, then apply the exact bundle from the same clean Git revision:
+
+```bash
+node scripts/validation/deploy.mjs apply arc-we-rvit foundation /tmp/arc-reviewed-preview
+```
+
+Use a unique absolute bundle directory outside the checkout for each preview.
+Target scope and readiness come from that project's `deployment.bicepparam`;
+resource inputs come from the stage file. No GitHub values or input environment
+variables are required. The helper retains hash, revision, account-context,
+drift and deletion checks. Outside GitHub, your change process/CI must provide
+reviewer separation, security-scan gates and artifact access/retention controls;
+the helper is not a replacement for them.
+
 ## CMDB Reconciliation
 
 CMDB remains authoritative. Its connector is not implemented because no API,

@@ -38,27 +38,6 @@ jobs:
       contents: read
       id-token: write
     env:
-      ARC_IMPLEMENTATION_READY: ${{ vars.ARC_IMPLEMENTATION_READY }}
-      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-      ARC_MANAGEMENT_GROUP_ID: ${{ vars.ARC_MANAGEMENT_GROUP_ID }}
-      ARC_SUBNET_ID: ${{ vars.ARC_SUBNET_ID }}
-      ARC_DNS_ZONE_IDS: ${{ vars.ARC_DNS_ZONE_IDS }}
-      ARC_MONITOR_DNS_ZONE_IDS: ${{ vars.ARC_MONITOR_DNS_ZONE_IDS }}
-      ARC_WORKSPACE_ID: ${{ vars.ARC_WORKSPACE_ID }}
-      ARC_DCE_IDS: ${{ vars.ARC_DCE_IDS }}
-      ARC_WINDOWS_DCR_ID: ${{ vars.ARC_WINDOWS_DCR_ID }}
-      ARC_LINUX_DCR_ID: ${{ vars.ARC_LINUX_DCR_ID }}
-      ARC_WINDOWS_DCE_ID: ${{ vars.ARC_WINDOWS_DCE_ID }}
-      ARC_LINUX_DCE_ID: ${{ vars.ARC_LINUX_DCE_ID }}
-      ARC_MACHINES: ${{ vars.ARC_MACHINES }}
-      ARC_ONBOARDING_PRINCIPAL_ID: ${{ vars.ARC_ONBOARDING_PRINCIPAL_ID }}
-      ARC_PATCH_START: ${{ vars.ARC_PATCH_START }}
-      ARC_PATCH_RECURRENCE: ${{ vars.ARC_PATCH_RECURRENCE }}
-      ARC_INITIATIVE_ID: ${{ vars.ARC_INITIATIVE_ID }}
-      ARC_SCOPE_ID: ${{ vars.ARC_SCOPE_ID }}
-      ARC_ALLOWED_EXTENSIONS: ${{ vars.ARC_ALLOWED_EXTENSIONS }}
-      ARC_DEFENDER_PLAN: ${{ vars.ARC_DEFENDER_PLAN }}
       ARC_TARGET: ${{ inputs.target }}
       ARC_STAGE: ${{ inputs.stage }}
     steps:
@@ -66,9 +45,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Verify target and implementation gate
+      - name: Verify target selection
         run: |
-          test "$ARC_IMPLEMENTATION_READY" = true
           node --input-type=module -e 'import { resolveStage } from "./scripts/validation/deploy.mjs"; resolveStage(process.env.ARC_TARGET, process.env.ARC_STAGE);'
       - name: Install pinned Bicep
         run: az bicep install --version v0.43.1
@@ -97,10 +75,6 @@ jobs:
       contents: read
       id-token: write
     env:
-      ARC_IMPLEMENTATION_READY: ${{ vars.ARC_IMPLEMENTATION_READY }}
-      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-      ARC_MANAGEMENT_GROUP_ID: ${{ vars.ARC_MANAGEMENT_GROUP_ID }}
       ARC_TARGET: ${{ inputs.target }}
       ARC_STAGE: ${{ inputs.stage }}
     steps:

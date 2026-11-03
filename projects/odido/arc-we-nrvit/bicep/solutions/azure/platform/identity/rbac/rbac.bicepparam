@@ -1,3 +1,4 @@
 using '../../../../../../../../../bicep/solutions/azure/platform/identity/rbac/rbac.bicep'
 
-param onboardingPrincipalId = readEnvironmentVariable('ARC_ONBOARDING_PRINCIPAL_ID')
+param onboardingPrincipalId = '00000000-0000-0000-0000-000000000000'
+param operatorAssignments = []

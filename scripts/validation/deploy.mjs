@@ -33,6 +33,23 @@ export function checkParameters(target, stage, parameters) {
   if (stage === 'defender') assert.equal(parameters.costApproved.value, true, 'Defender billing has not been approved in source');
   assert.ok(!JSON.stringify(parameters).includes('11111111-1111-1111-1111-111111111111'), 'Synthetic validation IDs cannot be deployed');
   assert.ok(!JSON.stringify(parameters).includes('00000000-0000-0000-0000-000000000000'), 'Placeholder IDs cannot be deployed');
+  assert.ok(!JSON.stringify(parameters).includes('REQUIRED_'), 'Replace required values in the source parameter file before deployment');
+}
+
+export function checkDeploymentContext(target, stage, parameters) {
+  const configuration = resolveStage(target, stage);
+  const context = Object.fromEntries(Object.entries(parameters).map(([name, parameter]) => [name, parameter.value]));
+  assert.equal(context.implementationReady, true, 'Complete the readiness record and approve implementationReady in deployment.bicepparam before Azure operations');
+  for (const identifier of [context.subscriptionId, context.tenantId]) {
+    assert.match(identifier || '', /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i, 'Set explicit Azure subscription and tenant IDs in deployment.bicepparam');
+    assert.ok(!['00000000-0000-0000-0000-000000000000', '11111111-1111-1111-1111-111111111111'].includes(identifier), 'Placeholder context IDs cannot be deployed');
+  }
+  assert.match(context.location || '', /^[a-z0-9]+$/, 'Set the deployment location in deployment.bicepparam');
+  if (configuration.scope === 'mg') {
+    assert.match(context.managementGroupId || '', /^[a-zA-Z0-9_.()-]{1,90}$/, 'Set the management group ID in deployment.bicepparam');
+    assert.ok(!context.managementGroupId.includes('REQUIRED_'), 'Replace the management group placeholder');
+  }
+  return context;
 }
 
 export function canonical(value) {
@@ -71,32 +88,35 @@ function main() {
   const [mode, target, stage, directory] = process.argv.slice(2);
   assert.ok(['preview', 'apply'].includes(mode), 'Usage: deploy.mjs preview|apply target stage bundle-directory');
   const configuration = resolveStage(target, stage);
-  assert.equal(process.env.ARC_IMPLEMENTATION_READY, 'true', 'Complete the inventory and security/network decision record before Azure operations');
   assert.ok(directory && path.isAbsolute(directory), 'Use an absolute runner-temporary bundle directory');
   const bundle = path.resolve(directory);
   const relativeBundle = path.relative(root, bundle);
   assert.ok(relativeBundle.startsWith(`..${path.sep}`), 'Generated deployment bundles must stay outside the source repository');
-  const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID;
-  const tenantId = process.env.AZURE_TENANT_ID;
-  for (const identifier of [subscriptionId, tenantId]) {
-    assert.match(identifier || '', /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i, 'Set explicit Azure subscription and tenant IDs');
-    assert.ok(!['00000000-0000-0000-0000-000000000000', '11111111-1111-1111-1111-111111111111'].includes(identifier));
-  }
-  const sourceCommit = process.env.GITHUB_SHA;
-  assert.match(sourceCommit || '', /^[0-9a-f]{40}$/i, 'Run delivery from a reviewed GitHub commit');
+  const project = path.join(root, 'projects/odido', target);
+  const settings = compileParameters(path.join(project, 'deployment.bicepparam'));
+  const { subscriptionId, tenantId, managementGroupId, location } = checkDeploymentContext(target, stage, settings.parameters);
+  const revision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  assert.equal(revision.status, 0, 'Run delivery from a Git checkout');
+  const sourceCommit = revision.stdout.trim();
+  assert.match(sourceCommit, /^[0-9a-f]{40}$/i, 'Run delivery from a reviewed source commit');
+  const status = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' });
+  assert.equal(status.status, 0);
+  assert.equal(status.stdout.trim(), '', 'Commit and review configuration changes before delivery');
+  const prefix = path.join(project, 'bicep/solutions/azure');
+  const parameterFile = path.join(prefix, `${configuration.solution}.bicepparam`);
+  const currentParameters = compileParameters(parameterFile);
+  checkParameters(target, stage, currentParameters.parameters);
   const account = az(['account', 'show', '--subscription', subscriptionId]);
   assert.equal(account.tenantId.toLowerCase(), tenantId.toLowerCase(), 'Wrong Azure tenant');
   assert.equal(account.id.toLowerCase(), subscriptionId.toLowerCase(), 'Wrong Azure subscription');
 
-  const prefix = path.join(root, 'projects/odido', target, 'bicep/solutions/azure');
-  const parameterFile = path.join(prefix, `${configuration.solution}.bicepparam`);
   const templateFile = path.join(root, 'bicep/solutions/azure', `${configuration.solution}.bicep`);
   const scopeArguments = configuration.scope === 'mg'
-    ? ['--management-group-id', process.env.ARC_MANAGEMENT_GROUP_ID || '', '--location', 'westeurope']
-    : configuration.scope === 'sub' ? ['--location', 'westeurope'] : [];
-  if (configuration.scope === 'mg') assert.match(process.env.ARC_MANAGEMENT_GROUP_ID || '', /^[a-zA-Z0-9_.()-]{1,90}$/, 'Set the actual management group ID');
+    ? ['--management-group-id', managementGroupId, '--location', location]
+    : configuration.scope === 'sub' ? ['--location', location] : [];
   if (configuration.scope === 'group') {
     const foundation = compileParameters(path.join(prefix, 'infrastructure/foundation/foundation.bicepparam'));
+    checkParameters(target, 'foundation', foundation.parameters);
     scopeArguments.push('--resource-group', foundation.parameters.resourceGroups.value[configuration.group]);
   }
   const commandArguments = ['--subscription', subscriptionId, ...scopeArguments];
@@ -108,8 +128,7 @@ function main() {
   if (mode === 'preview') {
     mkdirSync(bundle, { recursive: true });
     const template = az(['bicep', 'build', '--file', templateFile, '--stdout']);
-    const parameters = compileParameters(parameterFile);
-    checkParameters(target, stage, parameters.parameters);
+    const parameters = currentParameters;
     writeJson(templatePath, template);
     writeJson(parametersPath, parameters);
     const inputs = [...commandArguments, '--template-file', templatePath, '--parameters', `@${parametersPath}`];
@@ -134,7 +153,7 @@ function main() {
   const preview = az(['deployment', configuration.scope, 'what-if', ...inputs]);
   rejectDeletes(preview);
   assert.equal(digest(preview.changes), manifest.changesDigest, 'Azure state changed after review; generate and approve a new preview');
-  const deployment = az(['deployment', configuration.scope, 'create', ...inputs, '--name', `arc-${stage}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`]);
+  const deployment = az(['deployment', configuration.scope, 'create', ...inputs, '--name', `arc-${stage}-${sourceCommit.slice(0, 12)}-${Date.now()}`]);
   writeJson(path.join(bundle, 'deployment.json'), deployment);
   console.log(`Deployment completed: ${target}/${stage}. Review deployment.json for downstream resource IDs.`);
 }

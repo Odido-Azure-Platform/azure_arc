@@ -21,7 +21,7 @@ not approve these unknown environment details.
 | Protected workflow environments, reviewers and OIDC bootstrap | Not configured by this change | Repository / identity admins |
 | Effective static security scan of Bicep 2.0 AVM resources | Checkov 3.4.3 ARM parser crashes; raw scans evaluate zero checks | Tooling / security |
 
-Leave `ARC_IMPLEMENTATION_READY` unset until these decisions are recorded with
+Keep `implementationReady = false` in each project's `deployment.bicepparam` until these decisions are recorded with
 actual IDs, owner, approval/change ID and acceptance evidence. A failed scanner
 must be fixed or replaced through a reviewed tooling decision with meaningful
 coverage; do not bypass the gate or suppress a parser crash as a finding.
@@ -39,9 +39,11 @@ apply needs only the selected stage's resource write actions. Use different clas
 identities. MG policy publication, policy assignment, RG creation and role
 assignment need distinct privilege review; do not grant Owner universally.
 
-Define the ID/input variables described in the project README only in their
-appropriate protected environment. Keep the same scope IDs in preview and apply.
-Use explicit subscription IDs rather than subscription display-name discovery.
+Only login-action credentials/identity values belong in workflow environments.
+Resource inputs, target tenant/subscription/MG IDs and readiness approval belong
+in source-controlled `.bicepparam` files, as described in the project README.
+Keep login identities authorized for those explicit source scopes; no default
+subscription display-name discovery or runtime parameter overrides are used.
 
 MG hierarchy creation and subscription moves are intentionally not implemented:
 there are no approved hierarchy ownership/ID inputs. Reference existing scopes.
