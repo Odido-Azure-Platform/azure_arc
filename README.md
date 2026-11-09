@@ -13,6 +13,11 @@ Azure Arc platform configuration for the RVIT and Non-RVIT server estates.
 - [Delivery](.github/workflows/arc-deploy.yml): manual stage selection, OIDC,
     reviewed what-if bundles and separately protected apply environments.
 
+Like B2B Hub, delivery selects `projectname` and `environment`, then combines a
+reusable solution with its mirrored project `.bicepparam` path. Arc additionally
+selects a `stage` and retains explicit source-controlled scope/readiness settings.
+Validation checks that each parameter file references its matching solution.
+
 ## Status
 
 Repository implementation and sample cleanup were approved on 2026-11-03.

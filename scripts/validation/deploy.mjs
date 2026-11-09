@@ -25,6 +25,21 @@ export function resolveStage(target, stage) {
   return stages[stage];
 }
 
+export function resolveDeployment(projectname, environment, stage) {
+  assert.ok(['odido'].includes(projectname), 'Unknown deployment project');
+  const configuration = resolveStage(environment, stage);
+  const projectDirectory = path.join(root, 'projects', projectname, environment);
+  const solution = path.join('bicep/solutions/azure', configuration.solution);
+  const templateFile = path.join(root, `${solution}.bicep`);
+  const parameterFile = path.join(projectDirectory, `${solution}.bicepparam`);
+  const source = readFileSync(parameterFile, 'utf8');
+  const using = source.match(/^using '([^']+)'/m);
+  assert.ok(using, `Missing solution reference in ${parameterFile}`);
+  assert.equal(path.resolve(path.dirname(parameterFile), using[1]), templateFile, 'Project parameters must reference the matching reusable solution');
+  const contextFile = path.join(projectDirectory, 'deployment/context.bicepparam');
+  return { ...configuration, projectDirectory, templateFile, parameterFile, contextFile };
+}
+
 export function checkParameters(target, stage, parameters) {
   resolveStage(target, stage);
   const expectedClass = target === 'arc-we-rvit' ? 'RVIT' : 'Non-RVIT';
@@ -39,14 +54,14 @@ export function checkParameters(target, stage, parameters) {
 export function checkDeploymentContext(target, stage, parameters) {
   const configuration = resolveStage(target, stage);
   const context = Object.fromEntries(Object.entries(parameters).map(([name, parameter]) => [name, parameter.value]));
-  assert.equal(context.implementationReady, true, 'Complete the readiness record and approve implementationReady in deployment.bicepparam before Azure operations');
+  assert.equal(context.implementationReady, true, 'Complete the readiness record and approve implementationReady in deployment/context.bicepparam before Azure operations');
   for (const identifier of [context.subscriptionId, context.tenantId]) {
-    assert.match(identifier || '', /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i, 'Set explicit Azure subscription and tenant IDs in deployment.bicepparam');
+    assert.match(identifier || '', /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i, 'Set explicit Azure subscription and tenant IDs in deployment/context.bicepparam');
     assert.ok(!['00000000-0000-0000-0000-000000000000', '11111111-1111-1111-1111-111111111111'].includes(identifier), 'Placeholder context IDs cannot be deployed');
   }
-  assert.match(context.location || '', /^[a-z0-9]+$/, 'Set the deployment location in deployment.bicepparam');
+  assert.match(context.location || '', /^[a-z0-9]+$/, 'Set the deployment location in deployment/context.bicepparam');
   if (configuration.scope === 'mg') {
-    assert.match(context.managementGroupId || '', /^[a-zA-Z0-9_.()-]{1,90}$/, 'Set the management group ID in deployment.bicepparam');
+    assert.match(context.managementGroupId || '', /^[a-zA-Z0-9_.()-]{1,90}$/, 'Set the management group ID in deployment/context.bicepparam');
     assert.ok(!context.managementGroupId.includes('REQUIRED_'), 'Replace the management group placeholder');
   }
   return context;
@@ -85,15 +100,15 @@ function writeJson(file, value) {
 }
 
 function main() {
-  const [mode, target, stage, directory] = process.argv.slice(2);
-  assert.ok(['preview', 'apply'].includes(mode), 'Usage: deploy.mjs preview|apply target stage bundle-directory');
-  const configuration = resolveStage(target, stage);
+  const [mode, projectname, target, stage, directory] = process.argv.slice(2);
+  assert.ok(['preview', 'apply'].includes(mode), 'Usage: deploy.mjs preview|apply projectname environment stage bundle-directory');
+  const configuration = resolveDeployment(projectname, target, stage);
   assert.ok(directory && path.isAbsolute(directory), 'Use an absolute runner-temporary bundle directory');
   const bundle = path.resolve(directory);
   const relativeBundle = path.relative(root, bundle);
   assert.ok(relativeBundle.startsWith(`..${path.sep}`), 'Generated deployment bundles must stay outside the source repository');
-  const project = path.join(root, 'projects/odido', target);
-  const settings = compileParameters(path.join(project, 'deployment.bicepparam'));
+  const project = configuration.projectDirectory;
+  const settings = compileParameters(configuration.contextFile);
   const { subscriptionId, tenantId, managementGroupId, location } = checkDeploymentContext(target, stage, settings.parameters);
   const revision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
   assert.equal(revision.status, 0, 'Run delivery from a Git checkout');
@@ -103,14 +118,13 @@ function main() {
   assert.equal(status.status, 0);
   assert.equal(status.stdout.trim(), '', 'Commit and review configuration changes before delivery');
   const prefix = path.join(project, 'bicep/solutions/azure');
-  const parameterFile = path.join(prefix, `${configuration.solution}.bicepparam`);
-  const currentParameters = compileParameters(parameterFile);
+  const currentParameters = compileParameters(configuration.parameterFile);
   checkParameters(target, stage, currentParameters.parameters);
   const account = az(['account', 'show', '--subscription', subscriptionId]);
   assert.equal(account.tenantId.toLowerCase(), tenantId.toLowerCase(), 'Wrong Azure tenant');
   assert.equal(account.id.toLowerCase(), subscriptionId.toLowerCase(), 'Wrong Azure subscription');
 
-  const templateFile = path.join(root, 'bicep/solutions/azure', `${configuration.solution}.bicep`);
+  const templateFile = configuration.templateFile;
   const scopeArguments = configuration.scope === 'mg'
     ? ['--management-group-id', managementGroupId, '--location', location]
     : configuration.scope === 'sub' ? ['--location', location] : [];
@@ -123,7 +137,7 @@ function main() {
   const templatePath = path.join(bundle, 'template.json');
   const parametersPath = path.join(bundle, 'parameters.json');
   const manifestPath = path.join(bundle, 'manifest.json');
-  const context = { target, stage, subscriptionId, tenantId, sourceCommit, scope: configuration.scope, scopeArguments };
+  const context = { projectname, target, stage, subscriptionId, tenantId, sourceCommit, scope: configuration.scope, scopeArguments };
 
   if (mode === 'preview') {
     mkdirSync(bundle, { recursive: true });

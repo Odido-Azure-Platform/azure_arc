@@ -42,18 +42,22 @@ Azure CLI session authenticated by your approved local or CI login mechanism:
 
 ```bash
 node scripts/validation/validate.mjs
-node scripts/validation/deploy.mjs preview arc-we-rvit foundation /tmp/arc-reviewed-preview
+node scripts/validation/deploy.mjs preview odido arc-we-rvit foundation /tmp/arc-reviewed-preview
 ```
 
 Review the generated what-if, obtain the same independent change approval used
 for CI, then apply the exact bundle from the same clean Git revision:
 
 ```bash
-node scripts/validation/deploy.mjs apply arc-we-rvit foundation /tmp/arc-reviewed-preview
+node scripts/validation/deploy.mjs apply odido arc-we-rvit foundation /tmp/arc-reviewed-preview
 ```
 
 Use a unique absolute bundle directory outside the checkout for each preview.
-Target scope and readiness come from that project's `deployment.bicepparam`;
+The arguments are `preview|apply projectname environment stage bundle-directory`,
+matching the workflow's project/environment/stage selections. Existing protected
+GitHub environment names remain unchanged. Generate a fresh preview when moving
+from the old target-only command; old bundles lack the project context.
+Target scope and readiness come from that project's `deployment/context.bicepparam`;
 resource inputs come from the stage file. No GitHub values or input environment
 variables are required. The helper retains hash, revision, account-context,
 drift and deletion checks. Outside GitHub, your change process/CI must provide

@@ -12,12 +12,31 @@ live inventory before enabling delivery; they are not evidence of existing RGs.
 
 ## Source-Controlled Inputs
 
+The layout follows the B2B Hub catalogue pattern:
+
+```text
+bicep/solutions/azure/<area>/<solution>.bicep
+projects/<projectname>/<environment>/bicep/solutions/azure/<area>/<solution>.bicepparam
+```
+
+Select `projectname = odido`, an `environment` from the table above, and a
+deployment `stage` in the workflow. The helper resolves the solution and its
+mirrored parameter path together and verifies the parameter file's `using`
+reference. Validation enforces this relationship for every solution parameter
+file. Bicep stays reusable; project values stay in the parameter files.
+
+Unlike B2B Hub's subscription-name lookup, Arc retains explicit subscription and
+tenant IDs in source. Class environments are security boundaries, not dev/prod
+tiers, and governance stages can deploy at management-group scope.
+
 All deployment configuration lives in `.bicepparam`, not GitHub variables or
 secrets. Parameter files contain native Bicep strings, arrays and objects; none
 use `readEnvironmentVariable`. Validation compiles the actual source unchanged.
 
-Each target has a project-level `deployment.bicepparam` using Bicep's `using none`
+Each target has a `deployment/context.bicepparam` using Bicep's `using none`
 syntax. This is deployment-runner context, not a resource deployment template.
+It is kept outside `bicep/solutions` so every parameter file within that tree
+mirrors a real solution path and uses that solution's filename.
 
 | Parameter | Required configuration |
 | --- | --- |
@@ -62,6 +81,13 @@ Workflow target/stage selections, environment reviews and artifact paths are
 workflow controls, not resource configuration. Another CI runner or an already
 authenticated local Azure CLI can use the same helper and parameter files.
 Never commit credentials; use the runner's credential mechanism for login only.
+
+Existing protected GitHub environment names remain
+`<environment>-<stage>-preview` and `<environment>-<stage>-apply`; no approval
+rules or login-variable migration is needed. The workflow input formerly named
+`target` is now `environment`; callers must also supply `projectname = odido`.
+Preview bundles include the project as well as environment/stage, so generate a
+new preview after upgrading rather than applying a bundle from the old helper.
 
 ## Safety Defaults
 

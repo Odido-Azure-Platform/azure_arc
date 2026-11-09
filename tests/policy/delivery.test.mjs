@@ -1,7 +1,49 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { canonical, checkDeploymentContext, checkParameters, rejectDeletes, resolveStage } from '../../scripts/validation/deploy.mjs';
+import { canonical, checkDeploymentContext, checkParameters, rejectDeletes, resolveDeployment, resolveStage } from '../../scripts/validation/deploy.mjs';
+
+test('project/environment selection resolves every mirrored solution parameter set', () => {
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const classStages = ['foundation', 'monitoring', 'connectivity', 'rbac', 'assignments', 'associations', 'maintenance', 'defender'];
+  for (const environment of ['arc-we-rvit', 'arc-we-nrvit', 'governance']) {
+    for (const stage of environment === 'governance' ? ['definitions'] : classStages) {
+      const resolved = resolveDeployment('odido', environment, stage);
+      assert.equal(resolved.projectDirectory, path.join(root, 'projects/odido', environment));
+      assert.equal(resolved.contextFile, path.join(resolved.projectDirectory, 'deployment/context.bicepparam'));
+      assert.match(readFileSync(resolved.contextFile, 'utf8'), /^using none\s*$/m);
+      assert.equal(existsSync(path.join(resolved.projectDirectory, 'deployment.bicepparam')), false);
+      assert.equal(
+        path.relative(resolved.projectDirectory, resolved.parameterFile),
+        path.relative(root, resolved.templateFile).replace(/\.bicep$/, '.bicepparam'),
+      );
+      assert.match(readFileSync(resolved.templateFile, 'utf8'), /targetScope = '(subscription|resourceGroup|managementGroup)'/);
+    }
+  }
+  for (const [projectname, environment, stage] of [
+    ['../odido', 'arc-we-rvit', 'foundation'],
+    ['unknown', 'arc-we-rvit', 'foundation'],
+    ['odido', '../arc-we-rvit', 'foundation'],
+    ['odido', 'governance', 'foundation'],
+    ['odido', 'arc-we-rvit', 'definitions'],
+  ]) assert.throws(() => resolveDeployment(projectname, environment, stage));
+});
+
+test('workflow passes the same project/environment/stage selection to preview and apply', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/arc-deploy.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /projectname:\s*\n/);
+  assert.match(workflow, /environment:\s*\n\s*description:/);
+  assert.ok(!workflow.includes('inputs.target'));
+  assert.equal(workflow.match(/ARC_PROJECT: \$\{\{ inputs.projectname \}\}/g)?.length, 2);
+  assert.equal(workflow.match(/ARC_ENVIRONMENT: \$\{\{ inputs.environment \}\}/g)?.length, 2);
+  for (const mode of ['preview', 'apply']) {
+    assert.ok(workflow.includes(`deploy.mjs ${mode} "$ARC_PROJECT" "$ARC_ENVIRONMENT" "$ARC_STAGE" "$RUNNER_TEMP/arc-preview"`));
+  }
+  assert.ok(workflow.includes('name: ${{ inputs.environment }}-${{ inputs.stage }}-preview'));
+  assert.ok(workflow.includes('name: ${{ inputs.environment }}-${{ inputs.stage }}-apply'));
+});
 
 test('delivery accepts only fixed target/stage combinations', () => {
   assert.equal(resolveStage('governance', 'definitions').scope, 'mg');

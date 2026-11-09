@@ -17,6 +17,14 @@ Each project parameter file uses its matching reusable entry point. Do not copy
 Bicep into the project directories. Reusable solutions must not contain Odido
 subscription IDs, principal IDs, secrets, or project-specific network names.
 
+Workflows select `projectname`, `environment` and `stage`. The solution path
+under `bicep/solutions` is mirrored below
+`projects/<projectname>/<environment>/bicep/solutions`, changing only the
+extension from `.bicep` to `.bicepparam`. The parameter file's `using` declaration
+must point back to that exact solution; validation rejects mismatches.
+Separate `deployment/context.bicepparam` files under each environment hold
+runner scope/readiness, use `using none`, and are never sent as resource inputs.
+
 Use pinned registry AVM references; do not vendor AVM or copy the Jumpstart tree.
 Native modules are limited to confirmed gaps such as Arc ALPLS, custom policy
 definitions and DCR/DCE associations. They are not Microsoft-verified modules.

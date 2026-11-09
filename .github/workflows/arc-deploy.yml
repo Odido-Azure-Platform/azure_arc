@@ -1,10 +1,16 @@
 name: Arc Preview and Deploy
-run-name: Arc ${{ inputs.target }} / ${{ inputs.stage }}
+run-name: Arc ${{ inputs.projectname }} / ${{ inputs.environment }} / ${{ inputs.stage }}
 
 on:
   workflow_dispatch:
     inputs:
-      target:
+      projectname:
+        description: Project owning the parameter sets under projects/
+        type: choice
+        required: true
+        options: [odido]
+      environment:
+        description: Class environment or shared governance parameter set
         type: choice
         required: true
         options: [arc-we-rvit, arc-we-nrvit, governance]
@@ -21,7 +27,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: arc-${{ inputs.target }}-${{ inputs.stage }}
+  group: arc-${{ inputs.projectname }}-${{ inputs.environment }}-${{ inputs.stage }}
   cancel-in-progress: false
 
 jobs:
@@ -33,21 +39,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
-      name: ${{ inputs.target }}-${{ inputs.stage }}-preview
+      name: ${{ inputs.environment }}-${{ inputs.stage }}-preview
     permissions:
       contents: read
       id-token: write
     env:
-      ARC_TARGET: ${{ inputs.target }}
+      ARC_PROJECT: ${{ inputs.projectname }}
+      ARC_ENVIRONMENT: ${{ inputs.environment }}
       ARC_STAGE: ${{ inputs.stage }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Verify target selection
+      - name: Resolve project parameters and matching solution
         run: |
-          node --input-type=module -e 'import { resolveStage } from "./scripts/validation/deploy.mjs"; resolveStage(process.env.ARC_TARGET, process.env.ARC_STAGE);'
+          node --input-type=module -e 'import { resolveDeployment } from "./scripts/validation/deploy.mjs"; console.log(resolveDeployment(process.env.ARC_PROJECT, process.env.ARC_ENVIRONMENT, process.env.ARC_STAGE));'
       - name: Install pinned Bicep
         run: az bicep install --version v0.43.1
       - uses: azure/login@935127ca5bb3c4b02c9c2c10060028383878f33f
@@ -56,7 +63,7 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - name: Validate and preview the real target
-        run: node scripts/validation/deploy.mjs preview "$ARC_TARGET" "$ARC_STAGE" "$RUNNER_TEMP/arc-preview"
+        run: node scripts/validation/deploy.mjs preview "$ARC_PROJECT" "$ARC_ENVIRONMENT" "$ARC_STAGE" "$RUNNER_TEMP/arc-preview"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: arc-preview-${{ github.run_id }}-${{ github.run_attempt }}
@@ -70,12 +77,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment:
-      name: ${{ inputs.target }}-${{ inputs.stage }}-apply
+      name: ${{ inputs.environment }}-${{ inputs.stage }}-apply
     permissions:
       contents: read
       id-token: write
     env:
-      ARC_TARGET: ${{ inputs.target }}
+      ARC_PROJECT: ${{ inputs.projectname }}
+      ARC_ENVIRONMENT: ${{ inputs.environment }}
       ARC_STAGE: ${{ inputs.stage }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -94,7 +102,7 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - name: Revalidate reviewed bundle and apply
-        run: node scripts/validation/deploy.mjs apply "$ARC_TARGET" "$ARC_STAGE" "$RUNNER_TEMP/arc-preview"
+        run: node scripts/validation/deploy.mjs apply "$ARC_PROJECT" "$ARC_ENVIRONMENT" "$ARC_STAGE" "$RUNNER_TEMP/arc-preview"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: arc-deployment-${{ github.run_id }}-${{ github.run_attempt }}

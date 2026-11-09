@@ -21,7 +21,7 @@ not approve these unknown environment details.
 | Protected workflow environments, reviewers and OIDC bootstrap | Not configured by this change | Repository / identity admins |
 | Effective static security scan of Bicep 2.0 AVM resources | Checkov 3.4.3 ARM parser crashes; raw scans evaluate zero checks | Tooling / security |
 
-Keep `implementationReady = false` in each project's `deployment.bicepparam` until these decisions are recorded with
+Keep `implementationReady = false` in each project's `deployment/context.bicepparam` until these decisions are recorded with
 actual IDs, owner, approval/change ID and acceptance evidence. A failed scanner
 must be fixed or replaced through a reviewed tooling decision with meaningful
 coverage; do not bypass the gate or suppress a parser crash as a finding.

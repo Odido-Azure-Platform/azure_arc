@@ -39,13 +39,18 @@ try {
   for (const parameterFile of parameters) {
     const source = readFileSync(parameterFile, 'utf8');
     assert.ok(!/\breadEnvironmentVariable\s*\(/.test(source), `Deployment inputs must be in source, not environment variables: ${parameterFile}`);
-    if (path.basename(parameterFile) === 'deployment.bicepparam') {
+    const projectRelative = path.relative(path.join(root, 'projects'), parameterFile).split(path.sep);
+    if (projectRelative.length === 4 && projectRelative[2] === 'deployment' && projectRelative[3] === 'context.bicepparam') {
       assert.match(source, /^using none\s*$/m);
     } else {
       const using = source.match(/^using '([^']+)'/m);
       assert.ok(using, `Missing using declaration: ${parameterFile}`);
       const resolved = path.resolve(path.dirname(parameterFile), using[1]);
       assert.ok(templates.includes(resolved), `Parameter target outside maintained solutions: ${parameterFile}`);
+      const [, projectname, environment, ...solution] = path.relative(root, parameterFile).split(path.sep);
+      assert.ok(projectname && environment && solution[0] === 'bicep', `Expected projects/<projectname>/<environment>/bicep/solutions path: ${parameterFile}`);
+      const expected = path.join(root, ...solution).replace(/\.bicepparam$/, '.bicep');
+      assert.equal(resolved, expected, `Project parameters must mirror their reusable solution path: ${parameterFile}`);
     }
     execute('az', ['bicep', 'build-params', '--file', parameterFile, '--stdout']);
     const classValue = parameterFile.includes('arc-we-nrvit') ? 'Non-RVIT' : 'RVIT';
